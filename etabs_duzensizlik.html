@@ -1,0 +1,876 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ETABS · ASCE 7 düzensizlik ve öteleme kontrolü</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="lib/jspdf.umd.min.js"></script>
+<script>window.jspdf||document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"><\/script>')</script>
+<script src="lib/jspdf.plugin.autotable.min.js"></script>
+<script>(window.jspdf&&window.jspdf.jsPDF&&window.jspdf.jsPDF.API.autoTable)||document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"><\/script>')</script>
+<style>
+:root{
+  --paper:#F5F6F4; --sheet:#FFFFFF; --ink:#1E2830; --muted:#5D6B75; --line:#CBD2D6;
+  --steel:#2C3E4C; --signal:#E3A900; --signal-ink:#3A2B00;
+  --ok:#2E7D4F; --bad:#B8322A; --warn:#9A6A00; --na:#7A868E;
+  --ok-bg:#E5F2EA; --bad-bg:#F8E4E2; --warn-bg:#FBF0D2; --na-bg:#ECEFF1;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --paper:#141A1F; --sheet:#1C242B; --ink:#E4E9EC; --muted:#9AA8B1; --line:#33414B;
+    --steel:#8FB3CC; --signal:#F0B92A; --signal-ink:#2A1F00;
+    --ok:#6CC495; --bad:#F07B72; --warn:#E9B949; --na:#8E9AA2;
+    --ok-bg:#183326; --bad-bg:#3A1D1B; --warn-bg:#3A2F12; --na-bg:#252F36;
+    color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);
+  font:15px/1.55 "IBM Plex Sans",system-ui,"Segoe UI",Arial,sans-serif}
+h1,h2,h3{font-family:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;margin:0;line-height:1.2}
+.wrap{max-width:1040px;margin:0 auto;padding:28px 20px 80px}
+header.top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;
+  border-bottom:3px solid var(--ink);padding-bottom:14px;margin-bottom:26px;flex-wrap:wrap}
+header.top h1{font-size:30px;font-weight:700;letter-spacing:-.01em}
+header.top p{margin:4px 0 0;color:var(--muted);max-width:62ch}
+.bridge{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--na)}
+.dot.on{background:var(--ok)} .dot.off{background:var(--bad)}
+
+.step{background:var(--sheet);border:1px solid var(--line);border-left:6px solid var(--line);
+  padding:20px 22px;margin-bottom:18px}
+.step.active{border-left-color:var(--signal)}
+.step.done{border-left-color:var(--steel)}
+.step.locked{opacity:.55;pointer-events:none}
+.step-head{display:flex;gap:14px;align-items:baseline;margin-bottom:14px}
+.step-no{font-family:"IBM Plex Sans Condensed",sans-serif;font-weight:700;font-size:22px;color:var(--muted);min-width:22px}
+.step-head h2{font-size:21px;font-weight:600}
+.step-head p{margin:2px 0 0;color:var(--muted);font-size:14px}
+
+label.f{display:block;font-size:13px;font-weight:600;margin:0 0 6px}
+input[type=text],input[type=number],select{width:100%;padding:9px 11px;border:1px solid var(--line);
+  background:var(--paper);color:var(--ink);font:inherit;border-radius:3px}
+input:focus-visible,select:focus-visible,button:focus-visible,.seg input:focus-visible+span{outline:3px solid var(--signal);outline-offset:2px}
+.row{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));margin-bottom:14px}
+
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:3px;overflow:hidden;flex-wrap:wrap}
+.seg label{position:relative;cursor:pointer}
+.seg input{position:absolute;opacity:0}
+.seg span{display:block;padding:8px 16px;font-weight:500;border-right:1px solid var(--line);background:var(--paper)}
+.seg label:last-child span{border-right:0}
+.seg input:checked+span{background:var(--ink);color:var(--paper)}
+
+/* SDC şeridi: sayfanın karakteri */
+.sdc-strip{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:6px 0 16px}
+.sdc-strip label{cursor:pointer;position:relative}
+.sdc-strip input{position:absolute;opacity:0}
+.sdc-tile{display:block;border:1px solid var(--line);background:var(--paper);padding:10px 8px 8px;text-align:center}
+.sdc-tile b{display:block;font-family:"IBM Plex Sans Condensed",sans-serif;font-size:34px;line-height:1;font-weight:700}
+.sdc-tile small{display:block;color:var(--muted);font-size:12px;margin-top:4px}
+.sdc-strip input:checked+.sdc-tile{background:var(--signal);border-color:var(--signal);color:var(--signal-ink)}
+.sdc-strip input:checked+.sdc-tile small{color:var(--signal-ink)}
+.sdc-strip input:focus-visible+.sdc-tile{outline:3px solid var(--ink);outline-offset:2px}
+
+button{font:inherit;font-weight:600;cursor:pointer;border-radius:3px;padding:10px 18px;border:1px solid var(--ink)}
+button.primary{background:var(--ink);color:var(--paper)}
+button.primary:hover{background:var(--steel);border-color:var(--steel)}
+button.ghost{background:transparent;color:var(--ink)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+.msg{margin-top:14px;padding:10px 14px;border-left:4px solid;white-space:pre-line;font-size:14px}
+.msg.err{border-color:var(--bad);background:var(--bad-bg)}
+.msg.warn{border-color:var(--warn);background:var(--warn-bg)}
+.msg.info{border-color:var(--steel);background:var(--na-bg)}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;font-size:14px;margin-top:14px}
+.kv dt{color:var(--muted)} .kv dd{margin:0;word-break:break-all}
+
+.tbl-wrap{overflow-x:auto;border:1px solid var(--line)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--na-bg);font-weight:600;white-space:nowrap}
+td.n{text-align:right;font-variant-numeric:tabular-nums}
+td.c,th.c{text-align:center}
+tr:last-child td{border-bottom:0}
+
+.pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12.5px;font-weight:600;white-space:nowrap}
+.p-OK{background:var(--ok-bg);color:var(--ok)}
+.p-IRREGULAR,.p-FAIL,.p-PROHIBITED{background:var(--bad-bg);color:var(--bad)}
+.p-EXEMPT,.p-MANUAL{background:var(--warn-bg);color:var(--warn)}
+.p-NOT_REQUIRED,.p-NO_DATA{background:var(--na-bg);color:var(--na)}
+
+.cases-tools{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;font-size:14px}
+details{margin-top:12px}
+summary{cursor:pointer;font-weight:600}
+.results h3{font-size:18px;margin:22px 0 8px}
+.note{color:var(--muted);font-size:13.5px;margin:6px 0 0;max-width:80ch}
+.hidden{display:none!important}
+@media (max-width:560px){ .sdc-tile b{font-size:26px} header.top h1{font-size:24px} }
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>ETABS düzensizlik ve öteleme kontrolü</h1>
+      <p>Açık ETABS modelinin deprem case sonuçlarından ASCE 7 Tablo 12.3-1 / 12.3-2 düzensizlik kontrolleri ve Bölüm 12.12 göreli kat ötelemesi kontrolü.</p>
+    </div>
+    <div class="bridge"><span class="dot" id="bridgeDot"></span><span id="bridgeTxt">Köprü kontrol ediliyor…</span></div>
+  </header>
+
+  <!-- 1. Model -->
+  <section class="step active" id="s1">
+    <div class="step-head"><span class="step-no">1</span><div><h2>Model ve ETABS sürümü</h2>
+      <p>ETABS'te model açık ve analiz edilmiş olmalı.</p></div></div>
+    <div class="row">
+      <div style="grid-column:1/-1">
+        <label class="f" for="path">Model dosyasının yolu</label>
+        <input type="text" id="path" placeholder="C:\Projeler\Bina\Model.EDB" autocomplete="off">
+      </div>
+    </div>
+    <label class="f">ETABS sürümü</label>
+    <div class="seg" role="radiogroup" aria-label="ETABS sürümü">
+      <label><input type="radio" name="etv" value="19-20" checked><span>v19 – v20</span></label>
+      <label><input type="radio" name="etv" value="23"><span>v23</span></label>
+    </div>
+    <div class="actions" style="margin-top:16px">
+      <button class="primary" id="btnConnect">Modele bağlan</button>
+      <button class="ghost" id="btnDemo" title="ETABS olmadan örnek verilerle akışı dener">Örnek veriyle dene</button>
+    </div>
+    <div id="connectMsg"></div>
+    <dl class="kv hidden" id="modelInfo"></dl>
+  </section>
+
+  <!-- 2. ASCE -->
+  <section class="step locked" id="s2">
+    <div class="step-head"><span class="step-no">2</span><div><h2>ASCE 7 sürümü</h2></div></div>
+    <div class="seg" role="radiogroup" aria-label="ASCE sürümü">
+      <label><input type="radio" name="asce" value="7-16" checked><span>ASCE 7-16</span></label>
+      <label><input type="radio" name="asce" value="7-22"><span>ASCE 7-22</span></label>
+    </div>
+  </section>
+
+  <!-- 3. SDC -->
+  <section class="step locked" id="s3">
+    <div class="step-head"><span class="step-no">3</span><div><h2>Seismic Design Category</h2>
+      <p>Seçilen kategoride yönetmeliğin istemediği kontroller yapılmaz.</p></div></div>
+    <div class="sdc-strip" role="radiogroup" aria-label="SDC">
+      <label><input type="radio" name="sdc" value="A"><span class="sdc-tile"><b>A</b><small>Kontrol yok</small></span></label>
+      <label><input type="radio" name="sdc" value="B"><span class="sdc-tile"><b>B</b><small>3 kontrol</small></span></label>
+      <label><input type="radio" name="sdc" value="C"><span class="sdc-tile"><b>C</b><small>3 kontrol</small></span></label>
+      <label><input type="radio" name="sdc" value="D" checked><span class="sdc-tile"><b>D</b><small>8 kontrol</small></span></label>
+      <label><input type="radio" name="sdc" value="E"><span class="sdc-tile"><b>E</b><small>8 kontrol</small></span></label>
+      <label><input type="radio" name="sdc" value="F"><span class="sdc-tile"><b>F</b><small>8 kontrol</small></span></label>
+    </div>
+    <div class="tbl-wrap"><table id="appTable"></table></div>
+    <p class="note">Geometrik düzensizlikler (yatay 2, 3, 4, 5; düşey 3, 4) kapsam dışıdır. Kat dayanımı (düşey 5a/5b) analiz sonuçlarından elde edilemediği için, girerseniz 5. adımdaki dayanım değerleriyle kontrol edilir.</p>
+  </section>
+
+  <!-- 4. Cases -->
+  <section class="step locked" id="s4">
+    <div class="step-head"><span class="step-no">4</span><div><h2>Deprem yükleme durumları</h2>
+      <p>Her case'in hangi doğrultuda değerlendirileceğini işaretleyin. Tüm kontroller yalnızca bu case'lerden yapılır.</p></div></div>
+    <div class="cases-tools">
+      <label><input type="checkbox" id="onlySeismic" checked> Yalnızca deprem tipindeki case'leri göster</label>
+      <span id="caseCount" class="note" style="margin:0"></span>
+    </div>
+    <div class="tbl-wrap"><table id="caseTable"></table></div>
+  </section>
+
+  <!-- 5. Params -->
+  <section class="step locked" id="s5">
+    <div class="step-head"><span class="step-no">5</span><div><h2>Tasarım parametreleri</h2>
+      <p>Öteleme kontrolü Δ = Cd·δxe / Ie ile yapılır; ETABS ötelemeleri elastik (R ile azaltılmış) kabul edilir.</p></div></div>
+    <div class="row">
+      <div><label class="f" for="rc">Risk kategorisi</label>
+        <select id="rc"><option value="I">I</option><option value="II" selected>II</option><option value="III">III</option><option value="IV">IV</option></select></div>
+      <div><label class="f" for="ie">Ie</label><input type="number" id="ie" step="0.05" min="0.5" value="1.00"></div>
+      <div><label class="f" for="cd">Cd</label><input type="number" id="cd" step="0.25" min="0.5" value="5.5"></div>
+    </div>
+    <div class="row">
+      <div style="grid-column:1/-1"><label class="f" for="sys">Yapı türü (Tablo 12.12-1)</label>
+        <select id="sys"></select></div>
+    </div>
+    <div class="row" id="mfRow">
+      <div><label class="f"><input type="checkbox" id="mf"> Moment çerçeveli sistem (12.12.1.1, SDC D–F)</label></div>
+      <div><label class="f" for="rho">ρ (redundancy)</label><input type="number" id="rho" step="0.1" min="1" value="1.0"></div>
+    </div>
+    <details id="strengthBox">
+      <summary>Kat yanal dayanımları (düşey 5a / 5b için, isteğe bağlı)</summary>
+      <p class="note">Her kat için doğrultu bazında yanal dayanımı kN olarak girin. Boş bırakılırsa bu kontrol raporda "elle kontrol gerekli" olarak görünür.</p>
+      <div class="tbl-wrap" style="margin-top:8px"><table id="strengthTable"></table></div>
+    </details>
+    <div class="actions" style="margin-top:18px">
+      <button class="primary" id="btnRun">Kontrolleri çalıştır</button>
+    </div>
+    <div id="runMsg"></div>
+  </section>
+
+  <!-- 6. Results -->
+  <section class="step locked results" id="s6">
+    <div class="step-head"><span class="step-no">6</span><div><h2>Sonuçlar</h2></div></div>
+    <div id="results"></div>
+    <div class="actions" style="margin-top:20px">
+      <button class="primary" id="btnPdf" disabled>PDF raporu indir</button>
+    </div>
+  </section>
+</div>
+
+<script>
+// ==ENGINE START==
+const Engine = (() => {
+  const norm = s => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const num = v => { const x = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(x) ? x : NaN; };
+  function col(t, ...cands) {
+    if (!t || !t.fields) return -1;
+    const f = t.fields.map(norm);
+    for (const c of cands) { const i = f.indexOf(norm(c)); if (i >= 0) return i; }
+    for (const c of cands) { const nc = norm(c); const i = f.findIndex(x => x.startsWith(nc)); if (i >= 0) return i; }
+    return -1;
+  }
+
+  // ASCE 7-16 / 7-22 Tablo 12.3-1 ve 12.3-2 (geometrik olmayanlar). refs: [madde, geçerli SDC'ler]
+  const IRREG = {
+    H1a: { table: 'Table 12.3-1', type: 'H-1a', title: 'Torsional irregularity', titleTR: 'Burulma düzensizliği',
+      criterion: 'Max story drift at an end > 1.2 x average drift at both ends (rigid/semirigid diaphragms)',
+      refs: [['12.3.3.4', 'DEF'], ['12.7.3', 'BCDEF'], ['12.8.4.3', 'CDEF'], ['12.12.1', 'CDEF'], ['Table 12.6-1', 'DEF'], ['16.3.4', 'BCDEF']], prohibitedIn: '' },
+    H1b: { table: 'Table 12.3-1', type: 'H-1b', title: 'Extreme torsional irregularity', titleTR: 'Aşırı burulma düzensizliği',
+      criterion: 'Max story drift at an end > 1.4 x average drift at both ends',
+      refs: [['12.3.3.1', 'EF'], ['12.3.3.4', 'D'], ['12.7.3', 'BCD'], ['12.8.4.3', 'CD'], ['12.12.1', 'CD'], ['Table 12.6-1', 'D'], ['16.3.4', 'BCD']], prohibitedIn: 'EF' },
+    V1a: { table: 'Table 12.3-2', type: 'V-1a', title: 'Stiffness-soft story', titleTR: 'Yumuşak kat (rijitlik)',
+      criterion: 'K < 70% of story above, or < 80% of average of three stories above',
+      refs: [['Table 12.6-1', 'DEF']], prohibitedIn: '' },
+    V1b: { table: 'Table 12.3-2', type: 'V-1b', title: 'Stiffness-extreme soft story', titleTR: 'Aşırı yumuşak kat',
+      criterion: 'K < 60% of story above, or < 70% of average of three stories above',
+      refs: [['12.3.3.1', 'EF'], ['Table 12.6-1', 'DEF']], prohibitedIn: 'EF' },
+    V2: { table: 'Table 12.3-2', type: 'V-2', title: 'Weight (mass) irregularity', titleTR: 'Kütle düzensizliği',
+      criterion: 'Effective mass > 150% of an adjacent story (roof lighter than floor below excluded)',
+      refs: [['Table 12.6-1', 'DEF']], prohibitedIn: '' },
+    V5a: { table: 'Table 12.3-2', type: 'V-5a', title: 'Discontinuity in lateral strength - weak story', titleTR: 'Zayıf kat',
+      criterion: 'Story lateral strength < 80% of story above',
+      refs: [['12.3.3.1', 'EF'], ['Table 12.6-1', 'DEF']], prohibitedIn: 'EF' },
+    V5b: { table: 'Table 12.3-2', type: 'V-5b', title: 'Discontinuity in lateral strength - extreme weak story', titleTR: 'Aşırı zayıf kat',
+      criterion: 'Story lateral strength < 65% of story above',
+      refs: [['12.3.3.1', 'DEF'], ['12.3.3.2', 'BC'], ['Table 12.6-1', 'DEF']], prohibitedIn: 'DEF' },
+  };
+
+  const DRIFT_SYS = {
+    other: { label: 'All other structures', I: 0.020, III: 0.015, IV: 0.010 },
+    lowrise: { label: 'Structures (not masonry shear wall), 4 stories or less, with walls/partitions/ceilings designed for drift', I: 0.025, III: 0.020, IV: 0.015 },
+    masonryCant: { label: 'Masonry cantilever shear wall structures', I: 0.010, III: 0.010, IV: 0.010 },
+    masonryOther: { label: 'Other masonry shear wall structures', I: 0.007, III: 0.007, IV: 0.007 },
+  };
+  const IE_BY_RC = { I: 1.0, II: 1.0, III: 1.25, IV: 1.5 };
+
+  const requiredSDCs = id => [...new Set(IRREG[id].refs.flatMap(r => r[1].split('')))].join('');
+
+  function applicability(sdc) {
+    const list = Object.keys(IRREG).map(id => ({
+      id, ...IRREG[id],
+      required: sdc !== 'A' && requiredSDCs(id).includes(sdc),
+      activeRefs: IRREG[id].refs.filter(r => r[1].includes(sdc)).map(r => r[0]),
+      prohibited: IRREG[id].prohibitedIn.includes(sdc),
+    }));
+    list.unshift({ id: 'DRIFT', table: 'Section 12.12', type: 'Drift', title: 'Story drift limit', titleTR: 'Göreli kat ötelemesi',
+      criterion: 'Delta = Cd x de / Ie <= Delta_a (Table 12.12-1)', required: sdc !== 'A',
+      activeRefs: sdc === 'A' ? [] : ['12.8.6', '12.12.1', 'Table 12.12-1'].concat('DEF'.includes(sdc) ? ['12.12.1.1'] : []),
+      prohibited: false });
+    return list;
+  }
+  const countRequired = sdc => applicability(sdc).filter(a => a.required).length;
+
+  function orderStories(data) {
+    if (data.stories && data.stories.length) return [...data.stories].sort((a, b) => a.elev - b.elev).map(s => s.name);
+    const t = (data.tables || {}).mass || (data.tables || {}).drift;
+    const cS = col(t, 'Story'); const seen = [];
+    if (t) for (const r of t.rows) { const s = r[cS]; if (s && s.toLowerCase() !== 'base' && !seen.includes(s)) seen.push(s); }
+    return seen.reverse();
+  }
+
+  // case -> story -> max |değer|
+  function collect(t, cases, dir, valIdx, useDir) {
+    const out = {};
+    if (!t || valIdx < 0 || !cases.length) return out;
+    const cS = col(t, 'Story'), cC = col(t, 'OutputCase', 'LoadCase', 'Case'), cD = useDir ? col(t, 'Direction') : -1;
+    if (cS < 0 || cC < 0) return out;
+    for (const r of t.rows) {
+      const c = r[cC]; if (!cases.includes(c)) continue;
+      if (useDir && cD >= 0 && !String(r[cD]).trim().toUpperCase().startsWith(dir)) continue;
+      const v = Math.abs(num(r[valIdx])); if (!Number.isFinite(v)) continue;
+      const s = r[cS]; out[c] = out[c] || {};
+      if (!(s in out[c]) || v > out[c][s]) out[c][s] = v;
+    }
+    return out;
+  }
+
+  function driftCheck(D, stories, opt, sdc) {
+    const sys = DRIFT_SYS[opt.sysType] || DRIFT_SYS.other;
+    const rcKey = (opt.rc === 'I' || opt.rc === 'II') ? 'I' : opt.rc;
+    let limit = sys[rcKey]; const baseLimit = limit; let rhoApplied = false;
+    if (opt.momentFrame && 'DEF'.includes(sdc) && opt.rho > 0) { limit = limit / opt.rho; rhoApplied = true; }
+    const rows = [];
+    for (const dir of ['X', 'Y']) {
+      for (const s of [...stories].reverse()) {
+        let best = null;
+        for (const c in D[dir]) {
+          const de = D[dir][c][s]; if (!(de >= 0)) continue;
+          if (!best || de > best.de) best = { de, case: c };
+        }
+        if (!best) continue;
+        const ratio = opt.Cd * best.de / opt.Ie;
+        rows.push({ dir, story: s, case: best.case, de: best.de, ratio, limit, dcr: ratio / limit, ok: ratio <= limit + 1e-12 });
+      }
+    }
+    const summary = {};
+    for (const dir of ['X', 'Y']) {
+      const r = rows.filter(x => x.dir === dir);
+      if (r.length) summary[dir] = r.reduce((a, b) => (b.dcr > a.dcr ? b : a));
+    }
+    return { status: rows.length ? (rows.some(r => !r.ok) ? 'FAIL' : 'OK') : 'NO_DATA',
+      rows, summary, limit, baseLimit, rhoApplied, sysLabel: sys.label };
+  }
+
+  // 12.3.2.2 İstisna 1: hiçbir katta öteleme oranı üst katın %130'unu aşmıyorsa V-1a, V-1b, V-2 uygulanmaz.
+  // En üst iki kat arasındaki ilişki değerlendirilmez.
+  function driftExemption(D, stories) {
+    let applies = true, any = false, worst = null;
+    for (const dir of ['X', 'Y']) for (const c in D[dir]) {
+      const m = D[dir][c];
+      for (let i = 0; i <= stories.length - 3; i++) {
+        const lo = m[stories[i]], up = m[stories[i + 1]];
+        if (!(lo > 0 && up > 0)) continue;
+        any = true; const r = lo / up;
+        if (!worst || r > worst.ratio) worst = { ratio: r, dir, case: c, story: stories[i], above: stories[i + 1] };
+        if (r > 1.3) applies = false;
+      }
+    }
+    return { applies: any && applies, evaluated: any, worst };
+  }
+
+  function torsion(t, stories, dirs) {
+    if (!t) return null;
+    const cS = col(t, 'Story'), cC = col(t, 'OutputCase', 'LoadCase', 'Case'), cD = col(t, 'Direction');
+    const cR = col(t, 'Ratio'), cMx = col(t, 'MaxDrift', 'Max'), cAv = col(t, 'AvgDrift', 'Avg');
+    if (cS < 0 || cC < 0 || cR < 0) return null;
+    const best = {};
+    for (const r of t.rows) {
+      const c = r[cC];
+      const d = cD >= 0 ? String(r[cD]).trim().toUpperCase().charAt(0) : null;
+      for (const dir of ['X', 'Y']) {
+        if (!dirs[dir].includes(c)) continue;
+        if (d && d !== dir) continue;
+        const ratio = num(r[cR]); if (!Number.isFinite(ratio)) continue;
+        const k = dir + '|' + r[cS];
+        if (!best[k] || ratio > best[k].ratio)
+          best[k] = { dir, story: r[cS], case: c, ratio, maxDrift: num(r[cMx]), avgDrift: num(r[cAv]) };
+      }
+    }
+    const rows = [];
+    for (const dir of ['X', 'Y']) for (const s of [...stories].reverse()) {
+      const b = best[dir + '|' + s];
+      if (b) rows.push({ ...b, cls: b.ratio > 1.4 ? 'H-1b' : b.ratio > 1.2 ? 'H-1a' : '-' });
+    }
+    return rows;
+  }
+
+  function softStory(t, stories, dirs) {
+    if (!t) return null;
+    const n = stories.length, best = {};
+    let anyCol = false;
+    for (const dir of ['X', 'Y']) {
+      const kIdx = col(t, 'Stiff' + dir, 'Stiffness' + dir);
+      if (kIdx < 0) continue;
+      anyCol = true;
+      const K = collect(t, dirs[dir], dir, kIdx, false);
+      for (const c in K) {
+        const a = stories.map(s => K[c][s]);
+        for (let i = 0; i < n - 1; i++) {
+          const Ki = a[i], Ka = a[i + 1];
+          if (!(Ki > 0 && Ka > 0)) continue;
+          const r1 = Ki / Ka;
+          let avg3 = null, r3 = null;
+          if (i + 3 < n && [1, 2, 3].every(j => a[i + j] > 0)) { avg3 = (a[i + 1] + a[i + 2] + a[i + 3]) / 3; r3 = Ki / avg3; }
+          const sev = Math.min(r1 / 0.7, r3 !== null ? r3 / 0.8 : Infinity);
+          const cls = (r1 < 0.6 || (r3 !== null && r3 < 0.7)) ? 'V-1b' : (r1 < 0.7 || (r3 !== null && r3 < 0.8)) ? 'V-1a' : '-';
+          const k = dir + '|' + stories[i];
+          if (!best[k] || sev < best[k].sev)
+            best[k] = { dir, story: stories[i], case: c, K: Ki, Kabove: Ka, r1, avg3, r3, cls, sev };
+        }
+      }
+    }
+    if (!anyCol) return null;
+    const rows = [];
+    for (const dir of ['X', 'Y']) for (const s of [...stories].reverse()) { const b = best[dir + '|' + s]; if (b) rows.push(b); }
+    return rows;
+  }
+
+  function massCheck(t, stories) {
+    if (!t) return null;
+    const cS = col(t, 'Story'), cM = col(t, 'UX', 'MassX', 'Mass');
+    if (cS < 0 || cM < 0) return null;
+    const map = {};
+    for (const r of t.rows) map[r[cS]] = num(r[cM]);
+    const m = stories.map(s => map[s]);
+    const n = m.length;
+    if (!m.some(v => v > 0)) return null;
+    const roofLight = n >= 2 && m[n - 1] < m[n - 2];
+    const rows = [];
+    for (let i = n - 1; i >= 0; i--) {
+      if (!(m[i] > 0)) continue;
+      let above = i < n - 1 ? m[i + 1] : null;
+      const below = i > 0 ? m[i - 1] : null;
+      let roofSkip = false;
+      if (i === n - 2 && roofLight) { above = null; roofSkip = true; }
+      const rA = above > 0 ? m[i] / above : null, rB = below > 0 ? m[i] / below : null;
+      const irr = (rA !== null && rA > 1.5) || (rB !== null && rB > 1.5);
+      rows.push({ story: stories[i], mass: m[i], above: i < n - 1 ? m[i + 1] : null, below, rA, rB, roofSkip, cls: irr ? 'V-2' : '-' });
+    }
+    return rows;
+  }
+
+  function weakStory(strengths, stories) {
+    const n = stories.length, rows = [];
+    let any = false;
+    for (const dir of ['X', 'Y']) {
+      const a = stories.map(s => num(strengths?.[s]?.[dir]));
+      for (let i = n - 2; i >= 0; i--) {
+        if (!(a[i] > 0 && a[i + 1] > 0)) continue;
+        any = true; const r = a[i] / a[i + 1];
+        rows.push({ dir, story: stories[i], S: a[i], Sabove: a[i + 1], r, cls: r < 0.65 ? 'V-5b' : r < 0.8 ? 'V-5a' : '-' });
+      }
+    }
+    return any ? rows : null;
+  }
+
+  function run(data, opt) {
+    const sdc = opt.sdc;
+    const stories = orderStories(data);
+    const n = stories.length;
+    const T = data.tables || {};
+    const dirs = { X: opt.xCases || [], Y: opt.yCases || [] };
+    const app = applicability(sdc);
+    const req = Object.fromEntries(app.map(a => [a.id, a.required]));
+    const statusOf = (id, found) => found ? (IRREG[id].prohibitedIn.includes(sdc) ? 'PROHIBITED' : 'IRREGULAR') : 'OK';
+    const checks = {}, notes = [];
+
+    const dIdx = col(T.drift, 'Drift');
+    const D = { X: collect(T.drift, dirs.X, 'X', dIdx, true), Y: collect(T.drift, dirs.Y, 'Y', dIdx, true) };
+
+    // Göreli kat ötelemesi
+    checks.DRIFT = req.DRIFT ? driftCheck(D, stories, opt, sdc) : { status: 'NOT_REQUIRED' };
+
+    // Burulma
+    if (req.H1a || req.H1b) {
+      const rows = torsion(T.maxavg, stories, dirs);
+      for (const id of ['H1a', 'H1b']) {
+        if (!req[id]) { checks[id] = { status: 'NOT_REQUIRED' }; continue; }
+        if (!rows || !rows.length) { checks[id] = { status: 'NO_DATA', rows: [] }; continue; }
+        const lim = id === 'H1a' ? 1.2 : 1.4;
+        const summary = {};
+        for (const dir of ['X', 'Y']) { const r = rows.filter(x => x.dir === dir); if (r.length) summary[dir] = r.reduce((a, b) => (b.ratio > a.ratio ? b : a)); }
+        checks[id] = { status: statusOf(id, rows.some(r => r.ratio > lim)), rows, summary, limit: lim };
+      }
+    } else { checks.H1a = { status: 'NOT_REQUIRED' }; checks.H1b = { status: 'NOT_REQUIRED' }; }
+
+    // Düşey 1a, 1b, 2 istisnaları
+    const storyExempt = n === 1 || (n === 2 && 'BCD'.includes(sdc));
+    const ex = driftExemption(D, stories);
+    const exemption = { ...ex, storyExempt, nStories: n };
+
+    if (req.V1a || req.V1b) {
+      const rows = softStory(T.stiff, stories, dirs);
+      for (const id of ['V1a', 'V1b']) {
+        if (!req[id]) { checks[id] = { status: 'NOT_REQUIRED' }; continue; }
+        if (!rows || !rows.length) { checks[id] = { status: 'NO_DATA', rows: [] }; continue; }
+        const found = rows.some(r => id === 'V1a' ? r.cls !== '-' : r.cls === 'V-1b');
+        const summary = {};
+        for (const dir of ['X', 'Y']) { const r = rows.filter(x => x.dir === dir); if (r.length) summary[dir] = r.reduce((a, b) => (b.sev < a.sev ? b : a)); }
+        checks[id] = { status: (storyExempt || ex.applies) ? 'EXEMPT' : statusOf(id, found), computed: statusOf(id, found), rows, summary };
+      }
+    } else { checks.V1a = { status: 'NOT_REQUIRED' }; checks.V1b = { status: 'NOT_REQUIRED' }; }
+
+    if (req.V2) {
+      const rows = massCheck(T.mass, stories);
+      if (!rows) checks.V2 = { status: 'NO_DATA', rows: [] };
+      else {
+        const found = rows.some(r => r.cls !== '-');
+        checks.V2 = { status: (storyExempt || ex.applies) ? 'EXEMPT' : statusOf('V2', found), computed: statusOf('V2', found), rows };
+      }
+    } else checks.V2 = { status: 'NOT_REQUIRED' };
+
+    if (req.V5a || req.V5b) {
+      const rows = weakStory(opt.strengths, stories);
+      for (const id of ['V5a', 'V5b']) {
+        if (!req[id]) { checks[id] = { status: 'NOT_REQUIRED' }; continue; }
+        if (!rows) { checks[id] = { status: 'MANUAL', rows: [] }; continue; }
+        const found = rows.some(r => id === 'V5a' ? r.cls !== '-' : r.cls === 'V-5b');
+        checks[id] = { status: statusOf(id, found), rows };
+      }
+    } else { checks.V5a = { status: 'NOT_REQUIRED' }; checks.V5b = { status: 'NOT_REQUIRED' }; }
+
+    // Notlar
+    if (sdc === 'A') notes.push('SDC A: only Section 11.7 applies; Chapter 12 irregularity and drift provisions are not required.');
+    if (!dirs.X.length) notes.push('No seismic case was assigned to the X direction; X-direction checks were not performed.');
+    if (!dirs.Y.length) notes.push('No seismic case was assigned to the Y direction; Y-direction checks were not performed.');
+    if (checks.H1a.rows) notes.push('Torsional irregularity applies only where diaphragms are rigid or semirigid. Ratios are taken from the ETABS max/average story drift table; seismic cases should include accidental torsion (12.8.4.2).');
+    if (['IRREGULAR', 'PROHIBITED'].includes(checks.H1a.status) && 'CDEF'.includes(sdc))
+      notes.push('Torsional irregularity exists in SDC C-F: amplify accidental torsion by Ax per 12.8.4.3 and evaluate drift at the edges per 12.12.1. The drift check here already uses the maximum point drift of each story.');
+    if (req.V1a || req.V2) {
+      if (storyExempt) notes.push(`Section 12.3.2.2 Exception 2: types V-1a, V-1b and V-2 do not apply to this ${n}-story building in SDC ${sdc}.`);
+      else if (ex.applies) notes.push(`Section 12.3.2.2 Exception 1: no story drift ratio exceeds 130% of the story above (max ${ex.worst.ratio.toFixed(2)}, ${ex.worst.dir}, ${ex.worst.story}), so types V-1a, V-1b and V-2 need not be considered. Computed results are listed for information. The relationship between the top two stories was not evaluated, as permitted.`);
+      else if (ex.evaluated) notes.push(`Section 12.3.2.2 Exception 1 does not apply: drift ratio of ${ex.worst.story} is ${ex.worst.ratio.toFixed(2)} times that of ${ex.worst.above} (${ex.worst.dir}, ${ex.worst.case}).`);
+    }
+    if (checks.DRIFT.rows) notes.push('Drift: de is the elastic drift ratio from the ETABS "Story Drifts" table (maximum over all points of the story). Seismic cases must give elastic (R-reduced) displacements; for response spectrum cases confirm scaling per 12.9.1.4 of the selected edition.');
+    if (['V5a', 'V5b'].some(id => checks[id].status === 'MANUAL')) notes.push('Weak story (V-5a/V-5b) requires story lateral strengths (sum of strengths of seismic-force-resisting elements sharing story shear), which are not available from analysis results; evaluate manually.');
+    if (stories.length === 0) notes.push('Story list could not be read; story order was not established.');
+
+    return { stories, app, checks, exemption, notes, dirs };
+  }
+
+  function demo() {
+    const n = 8, stories = [];
+    for (let i = 0; i < n; i++) stories.push({ name: 'Story' + (i + 1), elev: i === 0 ? 4.5 : 4.5 + 3.5 * i, height: i === 0 ? 4.5 : 3.5 });
+    const top2bot = [...stories].reverse().map(s => s.name);
+    const cases = [
+      { name: 'Dead', caseType: 1, designType: 1, seismic: false, status: 4 },
+      { name: 'Live', caseType: 1, designType: 3, seismic: false, status: 4 },
+      { name: 'EQX', caseType: 1, designType: 5, seismic: true, status: 4 },
+      { name: 'EQY', caseType: 1, designType: 5, seismic: true, status: 4 },
+      { name: 'RSX', caseType: 4, designType: 5, seismic: true, status: 4 },
+      { name: 'RSY', caseType: 4, designType: 5, seismic: true, status: 4 },
+    ];
+    const prof = { X: [0.0062, 0.0038, 0.0036, 0.0034, 0.0031, 0.0027, 0.0022, 0.0016], Y: [0.0041, 0.0040, 0.0038, 0.0035, 0.0031, 0.0026, 0.0021, 0.0015] };
+    const tors = { X: [1.08, 1.10, 1.12, 1.13, 1.14, 1.15, 1.16, 1.18], Y: [1.18, 1.22, 1.25, 1.27, 1.28, 1.29, 1.31, 1.33] };
+    const stiffK = { X: [210000, 520000, 500000, 480000, 450000, 420000, 380000, 330000], Y: [470000, 480000, 470000, 450000, 430000, 400000, 360000, 310000] };
+    const masses = [820, 610, 610, 610, 610, 610, 610, 420];
+    const drift = [], maxavg = [], stiff = [], mass = [];
+    for (const c of cases.filter(c => c.seismic)) {
+      const dir = c.name.endsWith('X') ? 'X' : 'Y', f = c.name.startsWith('RS') ? 0.85 : 1;
+      const ct = c.caseType === 4 ? 'LinRespSpec' : 'LinStatic', st = c.caseType === 4 ? 'Max' : '';
+      top2bot.forEach(s => {
+        const i = stories.findIndex(x => x.name === s);
+        drift.push([s, c.name, ct, st, dir, (prof[dir][i] * f).toFixed(6), String(10 + i), '0', '0', String(stories[i].elev)]);
+        const avg = prof[dir][i] * f;
+        maxavg.push([s, c.name, ct, st, dir, (avg * tors[dir][i]).toFixed(6), avg.toFixed(6), tors[dir][i].toFixed(3)]);
+        const kx = dir === 'X' ? stiffK.X[i] * f : 0, ky = dir === 'Y' ? stiffK.Y[i] * f : 0;
+        stiff.push([s, c.name, ct, st, '0', '0', String(kx), '0', '0', String(ky)]);
+      });
+    }
+    top2bot.forEach(s => { const i = stories.findIndex(x => x.name === s); mass.push([s, String(masses[i]), String(masses[i]), '0']); });
+    mass.push(['Base', '150', '150', '0']);
+    return {
+      connect: { ok: true, demo: true, filename: 'C:\\Ornek\\OrnekBina.EDB', etabsVersion: 'Örnek veri', warnings: [], stories, cases },
+      run: { ok: true, units: 'kN, m', stories, missing: [], tables: {
+        drift: { key: 'Story Drifts', fields: ['Story', 'OutputCase', 'CaseType', 'StepType', 'Direction', 'Drift', 'Label', 'X', 'Y', 'Z'], rows: drift },
+        maxavg: { key: 'Story Max Over Avg Drifts', fields: ['Story', 'OutputCase', 'CaseType', 'StepType', 'Direction', 'MaxDrift', 'AvgDrift', 'Ratio'], rows: maxavg },
+        stiff: { key: 'Story Stiffness', fields: ['Story', 'OutputCase', 'CaseType', 'StepType', 'ShearX', 'DriftX', 'StiffX', 'ShearY', 'DriftY', 'StiffY'], rows: stiff },
+        mass: { key: 'Mass Summary by Story', fields: ['Story', 'UX', 'UY', 'UZ'], rows: mass },
+      } },
+    };
+  }
+
+  return { IRREG, DRIFT_SYS, IE_BY_RC, applicability, countRequired, run, demo, num };
+})();
+// ==ENGINE END==
+</script>
+
+<script>
+const API = location.protocol.startsWith('http') ? '' : 'http://127.0.0.1:8765';
+const $ = s => document.querySelector(s);
+const state = { conn: null, data: null, result: null, demo: false, ctx: null };
+const STATUS_TR = { OK: 'Uygun', IRREGULAR: 'Düzensizlik var', PROHIBITED: 'Var · bu SDC’de izin verilmez', FAIL: 'Sınır aşıldı',
+  EXEMPT: 'İstisna (12.3.2.2)', MANUAL: 'Elle kontrol gerekli', NOT_REQUIRED: 'Gerekli değil', NO_DATA: 'Veri bulunamadı' };
+const STATUS_EN = { OK: 'OK', IRREGULAR: 'IRREGULAR', PROHIBITED: 'NOT PERMITTED', FAIL: 'EXCEEDS LIMIT',
+  EXEMPT: 'EXEMPT (12.3.2.2)', MANUAL: 'MANUAL CHECK', NOT_REQUIRED: 'NOT REQUIRED', NO_DATA: 'NO DATA' };
+const pill = s => `<span class="pill p-${s}">${STATUS_TR[s] || s}</span>`;
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const f = (v, d) => (v === null || v === undefined || !Number.isFinite(v)) ? '–' : v.toFixed(d);
+const radio = name => document.querySelector(`input[name=${name}]:checked`).value;
+const msg = (el, kind, text) => { $(el).innerHTML = text ? `<div class="msg ${kind}">${esc(text)}</div>` : ''; };
+
+// ---- köprü durumu
+async function ping() {
+  try { const r = await fetch(API + '/api/ping'); const j = await r.json(); if (!j.ok) throw 0;
+    $('#bridgeDot').className = 'dot on'; $('#bridgeTxt').textContent = 'Bağlantı hazır';
+  } catch { $('#bridgeDot').className = 'dot off'; $('#bridgeTxt').textContent = 'Program kapalı · ETABS-Duzensizlik’i başlatın'; }
+}
+async function post(path, body) {
+  const r = await fetch(API + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return r.json();
+}
+
+// ---- adımlar
+function unlock(n) { for (let i = 1; i <= 6; i++) { const s = $('#s' + i); s.classList.toggle('locked', i > n); s.classList.toggle('active', i === n); s.classList.toggle('done', i < n); } }
+
+// ---- uygulanabilirlik tablosu
+function renderApp() {
+  const sdc = radio('sdc');
+  const rows = Engine.applicability(sdc).map(a => `<tr>
+    <td>${esc(a.type)}</td><td>${esc(a.titleTR)}</td>
+    <td>${a.required ? (a.prohibited ? '<span class="pill p-PROHIBITED">Gerekli · varsa izin verilmez</span>' : '<span class="pill p-OK">Yapılacak</span>') : '<span class="pill p-NOT_REQUIRED">Gerekli değil</span>'}</td>
+    <td>${esc(a.activeRefs.join(', ') || '–')}</td></tr>`).join('');
+  $('#appTable').innerHTML = `<thead><tr><th>Tip</th><th>Kontrol</th><th>SDC ${sdc}</th><th>İlgili maddeler</th></tr></thead><tbody>${rows}</tbody>`;
+  const sdcD = 'DEF'.includes(sdc);
+  $('#mfRow').classList.toggle('hidden', !sdcD);
+  const app = Engine.applicability(sdc);
+  $('#strengthBox').classList.toggle('hidden', !app.some(a => (a.id === 'V5a' || a.id === 'V5b') && a.required));
+}
+document.querySelectorAll('.sdc-strip label').forEach(l => {
+  const v = l.querySelector('input').value; l.querySelector('small').textContent = v === 'A' ? 'Kontrol yok' : Engine.countRequired(v) + ' kontrol';
+});
+document.querySelectorAll('input[name=sdc]').forEach(r => r.addEventListener('change', renderApp));
+
+// ---- parametreler
+$('#sys').innerHTML = Object.entries(Engine.DRIFT_SYS).map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join('');
+$('#rc').addEventListener('change', () => { $('#ie').value = Engine.IE_BY_RC[$('#rc').value].toFixed(2); });
+
+// ---- bağlantı
+function onConnected(c) {
+  state.conn = c;
+  const info = [['Model', c.filename], ['ETABS', c.etabsVersion], ['Kat sayısı', c.stories.length], ['Load case', c.cases.length]];
+  $('#modelInfo').innerHTML = info.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('');
+  $('#modelInfo').classList.remove('hidden');
+  if (c.warnings && c.warnings.length) msg('#connectMsg', 'warn', c.warnings.join('\n'));
+  else msg('#connectMsg', 'info', c.demo ? 'Örnek veri yüklendi. ETABS’e bağlanılmadı.' : 'Bağlantı kuruldu.');
+  renderCases(); renderStrengths(); renderApp(); unlock(5);
+}
+$('#btnConnect').addEventListener('click', async () => {
+  const path = $('#path').value.trim();
+  if (!path) return msg('#connectMsg', 'err', 'Model dosyasının yolunu girin.');
+  $('#btnConnect').disabled = true; msg('#connectMsg', 'info', 'ETABS’e bağlanılıyor…');
+  try {
+    const c = await post('/api/connect', { path, version: radio('etv') });
+    if (!c.ok) return msg('#connectMsg', 'err', c.error);
+    state.demo = false; onConnected(c);
+  } catch { msg('#connectMsg', 'err', 'Programa ulaşılamadı. ETABS-Duzensizlik uygulamasını başlatın ve siyah pencereyi açık tutun.'); }
+  finally { $('#btnConnect').disabled = false; }
+});
+$('#btnDemo').addEventListener('click', () => { state.demo = true; const d = Engine.demo(); $('#path').value = d.connect.filename; onConnected(d.connect); });
+
+// ---- case'ler
+const CASE_TYPE = { 1: 'Linear static', 2: 'Nonlinear static', 3: 'Modal', 4: 'Response spectrum', 5: 'Linear history', 6: 'Nonlinear history' };
+function guessDir(name) { const u = name.toUpperCase(); const x = /X/.test(u), y = /Y/.test(u); return x && !y ? 'X' : y && !x ? 'Y' : ''; }
+function renderCases() {
+  const only = $('#onlySeismic').checked;
+  const list = state.conn.cases.filter(c => !only || c.seismic || c.designType === null || c.designType === undefined);
+  $('#caseCount').textContent = `${list.length} / ${state.conn.cases.length} case listeleniyor`;
+  $('#caseTable').innerHTML = `<thead><tr><th>Case</th><th>Tip</th><th>Analiz</th><th class="c">X doğrultusu</th><th class="c">Y doğrultusu</th></tr></thead><tbody>` +
+    list.map(c => { const g = c.seismic ? guessDir(c.name) : ''; const done = c.status === 4 || c.status == null;
+      return `<tr><td>${esc(c.name)}${c.seismic ? '' : ' <span class="note">(deprem tipi değil)</span>'}</td><td>${esc(CASE_TYPE[c.caseType] || '–')}</td>
+      <td>${done ? 'Tamamlandı' : '<span class="pill p-FAIL">Çalıştırılmadı</span>'}</td>
+      <td class="c"><input type="checkbox" data-case="${esc(c.name)}" data-dir="X" ${g === 'X' ? 'checked' : ''} aria-label="${esc(c.name)} X"></td>
+      <td class="c"><input type="checkbox" data-case="${esc(c.name)}" data-dir="Y" ${g === 'Y' ? 'checked' : ''} aria-label="${esc(c.name)} Y"></td></tr>`; }).join('') + '</tbody>';
+}
+$('#onlySeismic').addEventListener('change', renderCases);
+const selectedCases = dir => [...document.querySelectorAll(`#caseTable input[data-dir=${dir}]:checked`)].map(i => i.dataset.case);
+
+function renderStrengths() {
+  const st = [...state.conn.stories].sort((a, b) => b.elev - a.elev);
+  $('#strengthTable').innerHTML = `<thead><tr><th>Kat</th><th>Dayanım X (kN)</th><th>Dayanım Y (kN)</th></tr></thead><tbody>` +
+    st.map(s => `<tr><td>${esc(s.name)}</td><td><input type="number" min="0" data-st="${esc(s.name)}" data-d="X" aria-label="${esc(s.name)} X"></td>
+      <td><input type="number" min="0" data-st="${esc(s.name)}" data-d="Y" aria-label="${esc(s.name)} Y"></td></tr>`).join('') + '</tbody>';
+}
+function readStrengths() {
+  const o = {};
+  document.querySelectorAll('#strengthTable input').forEach(i => { if (i.value !== '') { (o[i.dataset.st] = o[i.dataset.st] || {})[i.dataset.d] = i.value; } });
+  return o;
+}
+
+// ---- çalıştır
+$('#btnRun').addEventListener('click', async () => {
+  const xCases = selectedCases('X'), yCases = selectedCases('Y');
+  if (!xCases.length && !yCases.length) return msg('#runMsg', 'err', 'X veya Y doğrultusu için en az bir deprem case’i işaretleyin.');
+  const Cd = Engine.num($('#cd').value), Ie = Engine.num($('#ie').value), rho = Engine.num($('#rho').value);
+  if (!(Cd > 0) || !(Ie > 0)) return msg('#runMsg', 'err', 'Cd ve Ie pozitif olmalı.');
+  const opt = { sdc: radio('sdc'), asce: radio('asce'), xCases, yCases, Cd, Ie, rho: rho > 0 ? rho : 1,
+    momentFrame: $('#mf').checked, rc: $('#rc').value, sysType: $('#sys').value, strengths: readStrengths() };
+  $('#btnRun').disabled = true; msg('#runMsg', 'info', 'Tablolar ETABS’ten okunuyor…');
+  try {
+    let data;
+    if (state.demo) data = Engine.demo().run;
+    else { data = await post('/api/run', { xCases, yCases }); if (!data.ok) return msg('#runMsg', 'err', data.error); }
+    state.data = data;
+    state.result = Engine.run(data, opt);
+    state.ctx = { ...opt, etv: radio('etv'), file: state.conn.filename, etabsVersion: state.conn.etabsVersion, demo: state.demo, missing: data.missing || [], date: new Date() };
+    msg('#runMsg', (data.missing || []).length ? 'warn' : 'info',
+      (data.missing || []).length ? 'Şu ETABS tabloları okunamadı: ' + data.missing.join(', ') + '. İlgili kontroller "veri bulunamadı" olarak işaretlendi.' : 'Kontroller tamamlandı.');
+    renderResults(); unlock(6); $('#btnPdf').disabled = false;
+    $('#s6').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  } catch (e) { msg('#runMsg', 'err', 'Köprüye ulaşılamadı veya beklenmeyen hata: ' + e.message); }
+  finally { $('#btnRun').disabled = false; }
+});
+
+// ---- sonuç tabloları (ekran ve PDF ortak)
+const ORDER = ['DRIFT', 'H1a', 'H1b', 'V1a', 'V1b', 'V2', 'V5a', 'V5b'];
+function detailTables(res) {
+  const c = res.checks, out = [];
+  if (c.DRIFT.rows) out.push({ id: 'DRIFT', title: 'Story drift (12.12.1)', titleTR: 'Göreli kat ötelemesi',
+    head: ['Dir', 'Story', 'Governing case', 'de', 'Cd*de/Ie', 'Limit', 'D/C', 'Result'],
+    body: c.DRIFT.rows.map(r => [r.dir, r.story, r.case, f(r.de, 5), f(r.ratio, 4), f(r.limit, 4), f(r.dcr, 2), r.ok ? 'OK' : 'EXCEEDS']) });
+  if (c.H1a.rows || c.H1b.rows) { const rows = (c.H1a.rows || c.H1b.rows); out.push({ id: 'H1', title: 'Torsional irregularity (H-1a / H-1b)', titleTR: 'Burulma düzensizliği',
+    head: ['Dir', 'Story', 'Governing case', 'Max drift', 'Avg drift', 'Max/Avg', 'Class'],
+    body: rows.map(r => [r.dir, r.story, r.case, f(r.maxDrift, 5), f(r.avgDrift, 5), f(r.ratio, 3), r.cls]) }); }
+  if (c.V1a.rows || c.V1b.rows) { const rows = (c.V1a.rows || c.V1b.rows); out.push({ id: 'V1', title: 'Soft story (V-1a / V-1b)', titleTR: 'Yumuşak kat',
+    head: ['Dir', 'Story', 'Governing case', 'K (kN/m)', 'K above', 'K/K above', 'K/avg3 above', 'Class'],
+    body: rows.map(r => [r.dir, r.story, r.case, f(r.K, 0), f(r.Kabove, 0), f(r.r1, 3), f(r.r3, 3), r.cls]) }); }
+  if (c.V2.rows) out.push({ id: 'V2', title: 'Weight (mass) irregularity (V-2)', titleTR: 'Kütle düzensizliği',
+    head: ['Story', 'Mass (kN-s2/m)', 'm / m above', 'm / m below', 'Class'],
+    body: c.V2.rows.map(r => [r.story, f(r.mass, 1), r.roofSkip ? 'roof excl.' : f(r.rA, 3), f(r.rB, 3), r.cls]) });
+  const w = c.V5a.rows || c.V5b.rows;
+  if (w && w.length) out.push({ id: 'V5', title: 'Weak story (V-5a / V-5b)', titleTR: 'Zayıf kat',
+    head: ['Dir', 'Story', 'Strength (kN)', 'Strength above', 'Ratio', 'Class'],
+    body: w.map(r => [r.dir, r.story, f(r.S, 0), f(r.Sabove, 0), f(r.r, 3), r.cls]) });
+  return out;
+}
+function summaryValue(id, res, dir) {
+  const c = res.checks[id];
+  if (id === 'DRIFT') { const s = c.summary?.[dir]; return s ? `${s.ratio.toFixed(4)} @ ${s.story} (D/C ${s.dcr.toFixed(2)})` : '–'; }
+  if (id === 'H1a' || id === 'H1b') { const s = c.summary?.[dir]; return s ? `max ${s.ratio.toFixed(2)} @ ${s.story}` : '–'; }
+  if (id === 'V1a' || id === 'V1b') { const s = c.summary?.[dir]; return s ? `${s.r1.toFixed(2)} / ${s.r3 !== null ? s.r3.toFixed(2) : '–'} @ ${s.story}` : '–'; }
+  if (id === 'V2') { if (!c.rows || dir === 'Y') return dir === 'Y' ? '' : '–'; const m = Math.max(...c.rows.map(r => Math.max(r.roofSkip ? 0 : (r.rA || 0), r.rB || 0))); return `max ratio ${m.toFixed(2)}`; }
+  if (id === 'V5a' || id === 'V5b') { const r = (c.rows || []).filter(x => x.dir === dir); if (!r.length) return '–'; const m = r.reduce((a, b) => (b.r < a.r ? b : a)); return `${m.r.toFixed(2)} @ ${m.story}`; }
+  return '–';
+}
+function renderResults() {
+  const res = state.result, app = Object.fromEntries(res.app.map(a => [a.id, a]));
+  let h = `<div class="tbl-wrap"><table><thead><tr><th>Tip</th><th>Kontrol</th><th>X</th><th>Y</th><th>Durum</th></tr></thead><tbody>`;
+  for (const id of ORDER) { const st = res.checks[id].status;
+    h += `<tr><td>${esc(app[id].type)}</td><td>${esc(app[id].titleTR)}</td><td>${st === 'NOT_REQUIRED' ? '' : esc(summaryValue(id, res, 'X'))}</td><td>${st === 'NOT_REQUIRED' ? '' : esc(summaryValue(id, res, 'Y'))}</td><td>${pill(st)}</td></tr>`; }
+  h += `</tbody></table></div>`;
+  if (res.checks.DRIFT.limit) h += `<p class="note">Öteleme sınırı Δa/hsx = ${res.checks.DRIFT.limit.toFixed(4)}${res.checks.DRIFT.rhoApplied ? ' (ρ ile bölündü, 12.12.1.1)' : ''}. Yumuşak kat sütunu: K/K üst ve K/ortalama(üst 3 kat).</p>`;
+  for (const t of detailTables(res)) {
+    h += `<details><summary>${esc(t.titleTR)} ayrıntıları</summary><div class="tbl-wrap" style="margin-top:8px"><table><thead><tr>${t.head.map(x => `<th>${esc(x)}</th>`).join('')}</tr></thead><tbody>` +
+      t.body.map(r => `<tr>${r.map((v, i) => `<td class="${i > 2 && /^[\d.–-]/.test(v) ? 'n' : ''}">${esc(v)}</td>`).join('')}</tr>`).join('') + `</tbody></table></div></details>`;
+  }
+  if (res.notes.length) h += `<h3>Notlar</h3>` + res.notes.map(n => `<p class="note">${esc(n)}</p>`).join('');
+  $('#results').innerHTML = h;
+}
+
+// ---- PDF
+const TR_MAP = { 'ç': 'c', 'Ç': 'C', 'ğ': 'g', 'Ğ': 'G', 'ı': 'i', 'İ': 'I', 'ö': 'o', 'Ö': 'O', 'ş': 's', 'Ş': 'S', 'ü': 'u', 'Ü': 'U',
+  'Δ': 'Delta', 'δ': 'd', 'ρ': 'rho', '≤': '<=', '≥': '>=', '×': 'x', '–': '-', '—': '-', '’': "'", '‘': "'", '“': '"', '”': '"', '·': '-' };
+const pdfTxt = s => String(s ?? '').replace(/[çÇğĞıİöÖşŞüÜΔδρ≤≥×–—’‘“”·]/g, ch => TR_MAP[ch]).replace(/[^\x20-\x7E\xA0-\xFF\n]/g, '?');
+
+function buildPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const res = state.result, ctx = state.ctx, W = 210, M = 14;
+  const app = Object.fromEntries(res.app.map(a => [a.id, a]));
+  const INK = [30, 40, 48], SIGNAL = [227, 169, 0];
+  const statusColor = t => /IRREGULAR|NOT PERMITTED|EXCEEDS|H-1|V-1|V-2|V-5/.test(t) ? [184, 50, 42] : /^OK$/.test(t) ? [46, 125, 79] : /EXEMPT|MANUAL/.test(t) ? [154, 106, 0] : null;
+  const tableStyle = { theme: 'grid', styles: { fontSize: 8, cellPadding: 1.6, lineColor: [203, 210, 214], lineWidth: 0.1, textColor: INK },
+    headStyles: { fillColor: INK, textColor: 255, fontStyle: 'bold' }, margin: { left: M, right: M },
+    didParseCell: d => { if (d.section === 'body') { const c = statusColor(String(d.cell.raw)); if (c) { d.cell.styles.textColor = c; d.cell.styles.fontStyle = 'bold'; } } } };
+  const T = rows => rows.map(r => r.map(pdfTxt));
+  let y = 0;
+  const need = h => { if (y + h > 280) { doc.addPage(); y = 18; } };
+  const heading = t => { need(14); doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(...INK); doc.text(pdfTxt(t), M, y); doc.setDrawColor(...SIGNAL); doc.setLineWidth(0.8); doc.line(M, y + 1.8, M + 24, y + 1.8); y += 7; };
+  const para = (t, size = 8.5) => { doc.setFont('helvetica', 'normal'); doc.setFontSize(size); doc.setTextColor(...INK); const lines = doc.splitTextToSize(pdfTxt(t), W - 2 * M); need(lines.length * 3.8 + 2); doc.text(lines, M, y); y += lines.length * 3.8 + 2; };
+  const table = (head, body, extra = {}) => { doc.autoTable({ startY: y, head: [head.map(pdfTxt)], body: T(body), ...tableStyle, ...extra }); y = doc.lastAutoTable.finalY + 6; };
+
+  // başlık bandı
+  doc.setFillColor(...INK); doc.rect(0, 0, W, 30, 'F'); doc.setFillColor(...SIGNAL); doc.rect(0, 30, W, 1.4, 'F');
+  doc.setTextColor(255); doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+  doc.text('Seismic Irregularity and Story Drift Check', M, 14);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+  doc.text(pdfTxt(`ASCE ${ctx.asce}  |  Seismic Design Category ${ctx.sdc}  |  ${ctx.date.toLocaleString('en-GB')}`), M, 22);
+  y = 38;
+
+  heading('Project and input data');
+  table(['Item', 'Value'], [
+    ['Model file', ctx.file + (ctx.demo ? '  (DEMO DATA - not an ETABS model)' : '')],
+    ['ETABS version', `${ctx.etabsVersion} (selected: ${ctx.etv === '23' ? 'v23' : 'v19-v20'})`],
+    ['Code', `ASCE ${ctx.asce}`], ['Seismic Design Category', ctx.sdc], ['Risk Category', ctx.rc],
+    ['Ie / Cd', `${ctx.Ie.toFixed(2)} / ${ctx.Cd.toFixed(2)}`],
+    ['Drift limit basis', res.checks.DRIFT.sysLabel || '-'],
+    ['Moment frame (12.12.1.1)', 'DEF'.includes(ctx.sdc) ? (ctx.momentFrame ? `Yes, rho = ${ctx.rho.toFixed(2)}` : 'No') : 'n/a'],
+    ['Seismic cases, X', ctx.xCases.join(', ') || '-'], ['Seismic cases, Y', ctx.yCases.join(', ') || '-'],
+    ['Stories (bottom to top)', `${res.stories.length}: ${res.stories.join(', ')}`], ['Units', 'kN, m'],
+  ], { columnStyles: { 0: { cellWidth: 48, fontStyle: 'bold' } } });
+
+  heading('1. Summary');
+  table(['Type', 'Check', 'X direction', 'Y direction', 'Status'],
+    ORDER.map(id => { const st = res.checks[id].status; return [app[id].type, app[id].title, st === 'NOT_REQUIRED' ? '' : summaryValue(id, res, 'X'), st === 'NOT_REQUIRED' ? '' : summaryValue(id, res, 'Y'), STATUS_EN[st]]; }),
+    { columnStyles: { 0: { cellWidth: 14 }, 4: { cellWidth: 30 } } });
+  para('Soft story values are K/K(above) / K/avg(3 above). NOT REQUIRED = the provision has no consequence in the selected SDC, so the check was not performed.', 7.5);
+
+  heading('2. Applicability in SDC ' + ctx.sdc);
+  table(['Type', 'Check', 'Criterion', 'Required', 'Governing sections'],
+    res.app.map(a => [a.type, a.title, a.criterion, a.required ? (a.prohibited ? 'Yes (not permitted if present)' : 'Yes') : 'No', a.activeRefs.join(', ') || '-']),
+    { columnStyles: { 0: { cellWidth: 13 }, 3: { cellWidth: 26 }, 4: { cellWidth: 34 } } });
+
+  let sec = 3;
+  const dets = detailTables(res);
+  for (const t of dets) {
+    heading(`${sec++}. ${t.title}`);
+    if (t.id === 'DRIFT') {
+      const d = res.checks.DRIFT;
+      para(`Delta/hsx = Cd x de / Ie with de taken as the maximum point drift of the story. Allowable Delta_a/hsx = ${d.baseLimit.toFixed(4)}${d.rhoApplied ? ` / rho = ${d.limit.toFixed(4)} (12.12.1.1)` : ''} (Table 12.12-1, Risk Category ${ctx.rc}).`);
+      need(78); drawDriftChart(doc, M, y, W - 2 * M, 72, d); y += 78;
+    }
+    if (t.id === 'H1') para('Classification: H-1a if Max/Avg > 1.2; H-1b if Max/Avg > 1.4. Highest ratio over the selected cases is shown per story.');
+    if (t.id === 'V1') para('Classification: V-1a if K < 0.70 K(above) or < 0.80 avg(3 above); V-1b if < 0.60 or < 0.70. Story stiffness = story shear / story drift from the ETABS "Story Stiffness" table; governing case shown per story.');
+    if (t.id === 'V2') para('Classification: V-2 if story mass > 1.5 x an adjacent story mass. A roof lighter than the floor below is not considered.');
+    table(t.head, t.body);
+  }
+  for (const id of ['V5a', 'V5b']) if (res.checks[id].status === 'MANUAL' && !dets.some(t => t.id === 'V5')) {
+    heading(`${sec++}. Weak story (V-5a / V-5b)`);
+    para('Story lateral strengths were not provided. This check is required in SDC ' + ctx.sdc + ' and must be evaluated manually (criteria: strength < 80% of story above -> V-5a; < 65% -> V-5b).');
+    break;
+  }
+
+  heading(`${sec++}. Notes and limitations`);
+  const notes = [...res.notes,
+    'Geometric irregularities (horizontal types 2, 3, 4, 5 and vertical types 3, 4) are outside the scope of this report.',
+    `Section references follow ASCE ${ctx.asce}. Results are based on ETABS analysis output and must be reviewed by the engineer of record.`];
+  if (ctx.missing.length) notes.unshift('ETABS tables not found: ' + ctx.missing.join(', ') + '. Related checks are marked NO DATA.');
+  notes.forEach((n, i) => para(`${i + 1}. ${n}`));
+
+  const pages = doc.getNumberOfPages();
+  for (let i = 1; i <= pages; i++) {
+    doc.setPage(i); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(120);
+    doc.text(pdfTxt(ctx.file.split(/[\\/]/).pop()), M, 290); doc.text(`Page ${i} / ${pages}`, W - M, 290, { align: 'right' });
+  }
+  const name = (ctx.file.split(/[\\/]/).pop() || 'model').replace(/\.[^.]+$/, '');
+  doc.save(`ASCE${ctx.asce}_SDC${ctx.sdc}_${pdfTxt(name).replace(/[^\w-]/g, '_')}.pdf`);
+}
+
+function drawDriftChart(doc, x, y, w, h, d) {
+  const stories = state.result.stories, n = stories.length;
+  if (!n || !d.rows.length) return;
+  const padL = 26, padB = 10, padT = 6, padR = 30;
+  const px = x + padL, py = y + padT, pw = w - padL - padR, ph = h - padT - padB;
+  const xmax = Math.max(d.limit * 1.15, ...d.rows.map(r => r.ratio)) * 1.05;
+  const X = v => px + pw * v / xmax, Y = i => py + ph - ph * (i + 0.5) / n;
+  doc.setDrawColor(203, 210, 214); doc.setLineWidth(0.15); doc.rect(px, py, pw, ph);
+  doc.setFontSize(6.5); doc.setTextColor(90);
+  for (let k = 0; k <= 4; k++) { const v = xmax * k / 4; doc.line(X(v), py, X(v), py + ph); doc.text(v.toFixed(4), X(v), py + ph + 4, { align: 'center' }); }
+  stories.forEach((s, i) => doc.text(pdfTxt(s), px - 2, Y(i) + 1, { align: 'right' }));
+  doc.text('Delta / hsx', px + pw / 2, py + ph + 8.5, { align: 'center' });
+  doc.setDrawColor(184, 50, 42); doc.setLineWidth(0.4); doc.setLineDashPattern([1.5, 1.2], 0);
+  doc.line(X(d.limit), py, X(d.limit), py + ph); doc.setLineDashPattern([], 0);
+  const series = [['X', [44, 62, 76]], ['Y', [227, 169, 0]]];
+  series.forEach(([dir, color], si) => {
+    const pts = stories.map((s, i) => { const r = d.rows.find(q => q.dir === dir && q.story === s); return r ? [X(r.ratio), Y(i)] : null; }).filter(Boolean);
+    if (!pts.length) return;
+    doc.setDrawColor(...color); doc.setFillColor(...color); doc.setLineWidth(0.6);
+    for (let i = 1; i < pts.length; i++) doc.line(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]);
+    pts.forEach(p => doc.circle(p[0], p[1], 0.7, 'F'));
+    const ly = py + 4 + si * 6; doc.line(px + pw + 4, ly, px + pw + 10, ly); doc.setTextColor(...[30, 40, 48]); doc.setFontSize(7.5); doc.text(dir + ' dir.', px + pw + 12, ly + 1);
+  });
+  const ly = py + 16; doc.setDrawColor(184, 50, 42); doc.setLineDashPattern([1.5, 1.2], 0); doc.line(px + pw + 4, ly, px + pw + 10, ly); doc.setLineDashPattern([], 0); doc.text('Limit', px + pw + 12, ly + 1);
+}
+
+$('#btnPdf').addEventListener('click', () => {
+  if (!window.jspdf || !window.jspdf.jsPDF) return alert('PDF kütüphanesi yüklenemedi. İnternet bağlantısını kontrol edip sayfayı yenileyin.');
+  try { buildPDF(); } catch (e) { alert('PDF oluşturulamadı: ' + e.message); }
+});
+
+renderApp(); ping();
+</script>
+</body>
+</html>
