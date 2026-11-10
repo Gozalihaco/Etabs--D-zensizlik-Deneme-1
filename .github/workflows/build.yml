@@ -1,0 +1,25 @@
+name: Windows kurulum dosyasini derle
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+      - name: Derle
+        shell: cmd
+        run: build_exe.bat ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ETABS-Duzensizlik
+          path: |
+            cikti/ETABS-Duzensizlik-Kurulum.exe
+            cikti/ETABS-Duzensizlik-Tasinabilir.zip
